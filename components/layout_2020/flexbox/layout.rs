@@ -160,6 +160,7 @@ impl FlexContainer {
         layout_context: &LayoutContext,
         positioning_context: &mut PositioningContext,
         containing_block: &ContainingBlock,
+        containing_block_for_container: &ContainingBlock,
     ) -> IndependentLayout {
         // Actual length may be less, but we guess that usually not by a lot
         let mut flex_items = Vec::with_capacity(self.children.len());
@@ -194,14 +195,6 @@ impl FlexContainer {
 
         let flex_item_boxes = flex_items.iter_mut().map(|child| &mut **child);
 
-        // FIXME: get actual min/max cross size for the flex container.
-        // We have access to style for the flex container in `containing_block.style`,
-        // but resolving percentages there requires access
-        // to the flex container’s own containing block which we don’t have.
-        // For now, use incorrect values instead of panicking:
-        let container_min_cross_size = Au::zero();
-        let container_max_cross_size = None;
-
         let flex_container_position_style = containing_block.style.get_position();
         let flex_wrap = flex_container_position_style.flex_wrap;
         let flex_direction = flex_container_position_style.flex_direction;
@@ -212,6 +205,29 @@ impl FlexContainer {
         let flex_direction = match flex_direction {
             FlexDirection::Row | FlexDirection::Column => FlexDirection::Row,
             FlexDirection::RowReverse | FlexDirection::ColumnReverse => FlexDirection::RowReverse,
+        };
+
+        let (container_min_cross_size, container_max_cross_size) = {
+            let pbm = containing_block
+                .style
+                .padding_border_margin(containing_block_for_container);
+            let min_box_size = containing_block
+                .style
+                .content_min_box_size(containing_block_for_container, &pbm)
+                .map(|v| v.map(Au::from))
+                .auto_is(Au::zero);
+            let max_box_size = containing_block
+                .style
+                .content_max_box_size(containing_block_for_container, &pbm)
+                .map(|v| v.map(Au::from));
+            match flex_direction {
+                FlexDirection::Row | FlexDirection::RowReverse => {
+                    (min_box_size.block, max_box_size.block)
+                },
+                FlexDirection::Column | FlexDirection::ColumnReverse => {
+                    (min_box_size.inline, max_box_size.inline)
+                },
+            }
         };
 
         let container_is_single_line = match containing_block.style.get_position().flex_wrap {
